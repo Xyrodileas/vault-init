@@ -1,0 +1,109 @@
+variables:
+  GIT_SUBMODULE_STRATEGY: recursive
+  DOCKER_TLS_CERTDIR: ""
+
+
+
+stages:
+  - base_image
+  - test
+  - deploy
+
+services: 
+  - docker:dind
+
+build_base_image:
+  stage: base_image
+  image: docker
+  variables:
+    DOCKER_HOST: tcp://docker:2375  
+  before_script:
+    - export DOCKER_PASSWORD=${DOCKER_PASSWORD:-$CI_REGISTRY_PASSWORD}
+    - export DOCKER_USER=${DOCKER_USER:-$CI_REGISTRY_USER }
+    - echo $DOCKER_PASSWORD | docker login --password-stdin -u $DOCKER_USER $DOCKER_REGISTRY
+    - export DOCKER_IMAGE=$(grep -i $(uname -m) docker/python.tag | cut -d ' ' -f 2)
+  script:
+    - docker pull ${DOCKER_REPOSITORY}:test-latest || true
+    - docker build --build-arg PYTHON_IMAGE=${DOCKER_IMAGE} -f docker/Dockerfile.test_image -t ${DOCKER_REPOSITORY}:test-latest .
+    - docker push ${DOCKER_REPOSITORY}:test-latest
+  only:
+    changes:
+      - docker/python.tag
+      - docker/Dockerfile.test_image
+
+preprod_image:
+  stage: base_image
+  image: docker
+  variables:
+    DOCKER_HOST: tcp://docker:2375  
+  before_script:
+    - export DOCKER_PASSWORD=${DOCKER_PASSWORD:-$CI_REGISTRY_PASSWORD}
+    - export DOCKER_USER=${DOCKER_USER:-$CI_REGISTRY_USER }
+    - echo $DOCKER_PASSWORD | docker login --password-stdin -u $DOCKER_USER $DOCKER_REGISTRY
+    - export DOCKER_IMAGE=$(grep -i $(uname -m) docker/python.tag | cut -d ' ' -f 2)
+  script:
+    - docker build --build-arg PYTHON_IMAGE=${DOCKER_IMAGE} -f docker/Dockerfile.prod_image -t ${DOCKER_REPOSITORY}:preprod-latest .
+    - docker push ${DOCKER_REPOSITORY}:preprod-latest
+
+test_vault_init:
+  stage: test
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+  image: $DOCKER_REPOSITORY:test-latest
+  before_script:
+    - pip install -r requirements-dev.txt -r requirements.txt
+  script:
+    - coverage run -m pytest --junitxml=junit.xml -v
+    - coverage xml -o coverage/cobertura-coverage.xml
+    - coverage html -d public
+    - coverage report 
+  coverage: '/TOTAL.*\s+(\d+%)$/'
+  artifacts:
+    paths:
+      - public
+    reports:
+      cobertura: coverage/cobertura-coverage.xml
+      junit: junit.xml
+
+pre_prod_test:
+  stage: test
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+  image: $DOCKER_REPOSITORY:preprod-latest
+  before_script:
+    - rm -r ./vault_init
+    - pip install -r requirements-dev.txt
+  script:
+    - pytest -v
+
+deploy_prod_image:
+  image: alpine:latest
+  stage: deploy
+  dependencies: 
+    - test_vault_init
+  before_script:
+    - export DOCKER_PASSWORD=${DOCKER_PASSWORD:-$CI_REGISTRY_PASSWORD}
+    - export DOCKER_USER=${DOCKER_USER:-$CI_REGISTRY_USER }
+    - echo $DOCKER_PASSWORD | docker login --password-stdin -u $DOCKER_USER $DOCKER_REGISTRY
+    - export DOCKER_IMAGE=$(grep -i $(uname -m) docker/python.tag | cut -d ' ' -f 2)    
+  script:
+    - DOCKER_VERSION=$(python -c "import vault_init; print(f'v{vault_init.__version__}')")
+    - docker build --build-arg PYTHON_IMAGE=${DOCKER_IMAGE} -f docker/Dockerfile.prod_image -t ${DOCKER_REPOSITORY}:latest .
+    - docker tag ${DOCKER_REPOSITORY}:latest ${DOCKER_REPOSITORY}:${DOCKER_VERSION}
+    - docker push ${DOCKER_REPOSITORY}:latest
+    - docker push ${DOCKER_REPOSITORY}:${DOCKER_VERSION}
+  only:
+    - master
+
+pages:
+  image: alpine:latest
+  stage: deploy
+  dependencies: 
+    - test_vault_init    
+  script:
+    - echo "Nothing to do"
+  artifacts:
+    paths:
+      - public
+  only:
+    - master

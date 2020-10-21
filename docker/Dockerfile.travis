@@ -1,0 +1,22 @@
+ARG PYTHON_IMAGE=python:3-slim
+FROM $PYTHON_IMAGE
+
+ARG PYTHON_IMAGE
+RUN echo Using DockerImage $PYTHON_IMAGE
+
+RUN apt update
+RUN apt install -y libgpgme-dev gcc swig
+RUN mkdir /gpg_install
+RUN pip install --target=/gpg_install gpg
+
+FROM $PYTHON_IMAGE
+
+COPY --from=0 /gpg_install /gpg_install
+COPY ./ /build
+
+RUN cp -r /gpg_install/* $(python -c "import site; print(site.getsitepackages()[0]);") && \
+    apt update && \
+    apt install -y libgpgme11 && \
+    rm -rf /var/lib/apt/lists/* /gpg_install/
+
+RUN cd /build && pip install -r requirements.txt -r requirements-dev.txt && rm -rf /build

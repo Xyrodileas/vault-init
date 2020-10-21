@@ -1,0 +1,104 @@
+dist: focal
+language: shell
+os: linux
+
+services:
+  - docker
+
+stages:
+  - build
+  - test
+  - deploy
+
+jobs:
+  include:
+    - stage: build
+      name: build_test_image
+      before_script:
+        - export DOCKER_IMAGE=$(grep -i $(uname -m) docker/python.tag | cut -d ' ' -f 2)
+        - export TRAVIS_DOCKER_TAG=${TRAVIS_PULL_REQUEST_BRANCH:-$TRAVIS_BRANCH}
+        - echo ${DOCKER_PASSWORD} | sha512sum | rev | cut -c -10 | rev
+        - echo ${DOCKER_PASSWORD} | docker login -u ${DOCKER_USER} --password-stdin
+      script:
+        - docker build --build-arg PYTHON_IMAGE=${DOCKER_IMAGE} -f docker/Dockerfile.travis -t ${DOCKER_REPOSITORY}:${TRAVIS_DOCKER_TAG}-test_image .
+      after_success:
+        - docker push ${DOCKER_REPOSITORY}:${TRAVIS_DOCKER_TAG}-test_image
+    
+    - stage: build
+      name: build_preprod_image
+      before_script:
+        - export DOCKER_IMAGE=$(grep -i $(uname -m) docker/python.tag | cut -d ' ' -f 2)
+        - export TRAVIS_DOCKER_TAG=${TRAVIS_PULL_REQUEST_BRANCH:-$TRAVIS_BRANCH}
+        - echo ${DOCKER_PASSWORD} | sha512sum | rev | cut -c -10 | rev
+        - echo ${DOCKER_PASSWORD} | docker login -u ${DOCKER_USER} --password-stdin
+      script:
+        - docker build --build-arg PYTHON_IMAGE=${DOCKER_IMAGE} -f docker/Dockerfile.prod_image -t ${DOCKER_REPOSITORY}:${TRAVIS_DOCKER_TAG}-preprod_image .
+      after_success:
+        - docker push ${DOCKER_REPOSITORY}:${TRAVIS_DOCKER_TAG}-preprod_image
+    
+    - stage: test
+      name: test_from_test_image
+      install:
+        - docker pull docker:dind
+        - echo ${DOCKER_PASSWORD} | sha512sum | rev | cut -c -10 | rev
+        - echo ${DOCKER_PASSWORD} | docker login -u ${DOCKER_USER} --password-stdin
+        - export VAULT_INIT_VERSION=v$(docker run --rm ${DOCKER_REPOSITORY}:${TRAVIS_DOCKER_TAG}-preprod_image python -c "from vault_init import __version__; print(__version__)")
+        - export TRAVIS_DOCKER_TAG=${TRAVIS_PULL_REQUEST_BRANCH:-$TRAVIS_BRANCH}
+      before_script:
+        - docker run --rm --privileged --name build_docker -e DOCKER_TLS_CERTDIR='' -p 2375 -d docker:dind
+        - docker run -d --rm --name build_container --link build_docker:build_docker -e DOCKER_HOST=tcp://build_docker:2375  -v `pwd`:`pwd` -p 8000:8000  ${DOCKER_REPOSITORY}:${TRAVIS_DOCKER_TAG}-test_image python -m http.server --directory `pwd`                 
+      script:
+        - docker exec build_container coverage run -m pytest --junitxml=junit.xml -v `pwd` # run tests
+      after_script:
+        - docker stop -t 0 build_container
+        - docker stop -t 0 build_docker
+      after_success:
+        - codecov # submit coverage
+
+    - stage: test
+      name: test_from_preprod_image
+      install:
+        - docker pull docker:dind
+        - echo ${DOCKER_PASSWORD} | sha512sum | rev | cut -c -10 | rev
+        - echo ${DOCKER_PASSWORD} | docker login -u ${DOCKER_USER} --password-stdin
+        - export VAULT_INIT_VERSION=v$(docker run --rm ${DOCKER_REPOSITORY}:${TRAVIS_DOCKER_TAG}-preprod_image python -c "from vault_init import __version__; print(__version__)")
+        - export TRAVIS_DOCKER_TAG=${TRAVIS_PULL_REQUEST_BRANCH:-$TRAVIS_BRANCH}
+      before_script:
+        - docker run --rm --privileged --name build_docker -e DOCKER_TLS_CERTDIR='' -p 2375 -d docker:dind
+        - docker run -d --rm --name build_container --link build_docker:build_docker -e DOCKER_HOST=tcp://build_docker:2375  -v `pwd`:`pwd` -p 8000:8000  ${DOCKER_REPOSITORY}:${TRAVIS_DOCKER_TAG}-preprod_image python -m http.server --directory `pwd`                 
+        - docker exec build_container pip install -r `pwd`/requirements-dev.txt
+        - rm -rf vault_init/
+      script:
+        - docker exec build_container coverage run -m pytest --junitxml=junit.xml -v `pwd` # run tests
+      after_script:
+        - docker stop -t 0 build_container
+        - docker stop -t 0 build_docker
+
+    - stage: deploy
+      if: branch != master AND type != pull_request
+      before_install:
+        - echo ${DOCKER_PASSWORD} | sha512sum | rev | cut -c -10 | rev
+        - echo ${DOCKER_PASSWORD} | docker login -u ${DOCKER_USER} --password-stdin
+        - export VAULT_INIT_VERSION=v$(docker run --rm ${DOCKER_REPOSITORY}:${TRAVIS_DOCKER_TAG}-preprod_image python -c "from vault_init import __version__; print(__version__)")
+        - export TRAVIS_DOCKER_TAG=${TRAVIS_PULL_REQUEST_BRANCH:-$TRAVIS_BRANCH}
+        - export DOCKER_IMAGE=$(grep -i $(uname -m) docker/python.tag | cut -d ' ' -f 2)
+      script:
+        - docker build --build-arg PYTHON_IMAGE=${DOCKER_IMAGE} -f docker/Dockerfile.prod_image -t ${DOCKER_REPOSITORY}:${VAULT_INIT_VERSION}-${TRAVIS_DOCKER_TAG} .
+        - docker tag ${DOCKER_REPOSITORY}:${VAULT_INIT_VERSION}-${TRAVIS_DOCKER_TAG} ${DOCKER_REPOSITORY}:${VAULT_INIT_VERSION}        
+        - docker push ${DOCKER_REPOSITORY}:${VAULT_INIT_VERSION}-${TRAVIS_DOCKER_TAG}
+
+    - stage: deploy
+      if: branch = master AND type != pull_request
+      before_install:
+        - echo ${DOCKER_PASSWORD} | sha512sum | rev | cut -c -10 | rev
+        - echo ${DOCKER_PASSWORD} | docker login -u ${DOCKER_USER} --password-stdin
+        - export VAULT_INIT_VERSION=v$(docker run --rm ${DOCKER_REPOSITORY}:${TRAVIS_DOCKER_TAG}-preprod_image python -c "from vault_init import __version__; print(__version__)")
+        - export TRAVIS_DOCKER_TAG=${TRAVIS_PULL_REQUEST_BRANCH:-$TRAVIS_BRANCH}
+        - export DOCKER_IMAGE=$(grep -i $(uname -m) docker/python.tag | cut -d ' ' -f 2)
+      install:
+        - docker build --build-arg PYTHON_IMAGE=${DOCKER_IMAGE} -f docker/Dockerfile.prod_image -t ${DOCKER_REPOSITORY}:${VAULT_INIT_VERSION}-${TRAVIS_DOCKER_TAG} .
+        - docker push ${DOCKER_REPOSITORY}:${VAULT_INIT_VERSION}-${TRAVIS_DOCKER_TAG}
+      script:
+        - docker tag ${DOCKER_REPOSITORY}:${VAULT_INIT_VERSION}-${TRAVIS_DOCKER_TAG} ${DOCKER_REPOSITORY}:latest
+        - docker push ${DOCKER_REPOSITORY}:${VAULT_INIT_VERSION}
+        - docker push ${DOCKER_REPOSITORY}:latest

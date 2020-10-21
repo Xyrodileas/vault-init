@@ -1,0 +1,44 @@
+version: '3.6'
+
+services:
+    docker:
+        image: docker:dind
+        privileged: true
+        command: ["--storage-driver=overlay2"]
+        environment:
+            DOCKER_TLS_CERTDIR:
+        volumes:
+            - docker_lib:/var/lib/docker
+            - cache:/cache
+            - builds:/builds
+        ports:
+            - "2375:2375"
+            - "2376:2376"
+        networks:
+            gitlab-runner-net:
+    runner:
+        build:
+            context: ./
+            dockerfile: ./docker/docker-compose.dockerfile
+
+        environment:
+            DOCKER_TLS_CERTDIR:
+            DOCKER_HOST: tcp://docker:2375    
+        volumes:
+            - ./:/script
+        networks:
+            - gitlab-runner-net
+        depends_on:
+            - docker
+        command: [ 
+            "pytest",
+            "/script"
+        ]
+
+volumes:
+    docker_lib:
+    cache:
+    builds:
+
+networks:
+  gitlab-runner-net:
