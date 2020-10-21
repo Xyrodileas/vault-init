@@ -79,8 +79,8 @@ jobs:
       before_install:
         - echo ${DOCKER_PASSWORD} | sha512sum | rev | cut -c -10 | rev
         - echo ${DOCKER_PASSWORD} | docker login -u ${DOCKER_USER} --password-stdin
+        - export TRAVIS_DOCKER_TAG=${TRAVIS_PULL_REQUEST_BRANCH:-$TRAVIS_BRANCH}        
         - export VAULT_INIT_VERSION=v$(docker run --rm ${DOCKER_REPOSITORY}:${TRAVIS_DOCKER_TAG}-preprod_image python -c "from vault_init import __version__; print(__version__)")
-        - export TRAVIS_DOCKER_TAG=${TRAVIS_PULL_REQUEST_BRANCH:-$TRAVIS_BRANCH}
         - export DOCKER_IMAGE=$(grep -i $(uname -m) docker/python.tag | cut -d ' ' -f 2)
       script:
         - docker build --build-arg PYTHON_IMAGE=${DOCKER_IMAGE} -f docker/Dockerfile.prod_image -t ${DOCKER_REPOSITORY}:${VAULT_INIT_VERSION}-${TRAVIS_DOCKER_TAG} .
@@ -92,8 +92,8 @@ jobs:
       before_install:
         - echo ${DOCKER_PASSWORD} | sha512sum | rev | cut -c -10 | rev
         - echo ${DOCKER_PASSWORD} | docker login -u ${DOCKER_USER} --password-stdin
+        - export TRAVIS_DOCKER_TAG=${TRAVIS_PULL_REQUEST_BRANCH:-$TRAVIS_BRANCH}        
         - export VAULT_INIT_VERSION=v$(docker run --rm ${DOCKER_REPOSITORY}:${TRAVIS_DOCKER_TAG}-preprod_image python -c "from vault_init import __version__; print(__version__)")
-        - export TRAVIS_DOCKER_TAG=${TRAVIS_PULL_REQUEST_BRANCH:-$TRAVIS_BRANCH}
         - export DOCKER_IMAGE=$(grep -i $(uname -m) docker/python.tag | cut -d ' ' -f 2)
       install:
         - docker build --build-arg PYTHON_IMAGE=${DOCKER_IMAGE} -f docker/Dockerfile.prod_image -t ${DOCKER_REPOSITORY}:${VAULT_INIT_VERSION}-${TRAVIS_DOCKER_TAG} .

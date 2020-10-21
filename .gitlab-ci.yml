@@ -77,7 +77,7 @@ pre_prod_test:
     - pytest -v
 
 deploy_prod_image:
-  image: alpine:latest
+  image: docker:latest
   stage: deploy
   dependencies: 
     - test_vault_init
