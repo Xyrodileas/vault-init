@@ -42,8 +42,8 @@ jobs:
         - docker pull docker:dind
         - echo ${DOCKER_PASSWORD} | sha512sum | rev | cut -c -10 | rev
         - echo ${DOCKER_PASSWORD} | docker login -u ${DOCKER_USER} --password-stdin
-        - export VAULT_INIT_VERSION=v$(docker run --rm ${DOCKER_REPOSITORY}:${TRAVIS_DOCKER_TAG}-preprod_image python -c "from vault_init import __version__; print(__version__)")
         - export TRAVIS_DOCKER_TAG=${TRAVIS_PULL_REQUEST_BRANCH:-$TRAVIS_BRANCH}
+        - export VAULT_INIT_VERSION=v$(docker run --rm ${DOCKER_REPOSITORY}:${TRAVIS_DOCKER_TAG}-preprod_image python -c "from vault_init import __version__; print(__version__)")        
       before_script:
         - docker run --rm --privileged --name build_docker -e DOCKER_TLS_CERTDIR='' -p 2375 -d docker:dind
         - docker run -d --rm --name build_container --link build_docker:build_docker -e DOCKER_HOST=tcp://build_docker:2375  -v `pwd`:`pwd` -p 8000:8000  ${DOCKER_REPOSITORY}:${TRAVIS_DOCKER_TAG}-test_image python -m http.server --directory `pwd`                 
@@ -61,8 +61,8 @@ jobs:
         - docker pull docker:dind
         - echo ${DOCKER_PASSWORD} | sha512sum | rev | cut -c -10 | rev
         - echo ${DOCKER_PASSWORD} | docker login -u ${DOCKER_USER} --password-stdin
-        - export VAULT_INIT_VERSION=v$(docker run --rm ${DOCKER_REPOSITORY}:${TRAVIS_DOCKER_TAG}-preprod_image python -c "from vault_init import __version__; print(__version__)")
         - export TRAVIS_DOCKER_TAG=${TRAVIS_PULL_REQUEST_BRANCH:-$TRAVIS_BRANCH}
+        - export VAULT_INIT_VERSION=v$(docker run --rm ${DOCKER_REPOSITORY}:${TRAVIS_DOCKER_TAG}-preprod_image python -c "from vault_init import __version__; print(__version__)")
       before_script:
         - docker run --rm --privileged --name build_docker -e DOCKER_TLS_CERTDIR='' -p 2375 -d docker:dind
         - docker run -d --rm --name build_container --link build_docker:build_docker -e DOCKER_HOST=tcp://build_docker:2375  -v `pwd`:`pwd` -p 8000:8000  ${DOCKER_REPOSITORY}:${TRAVIS_DOCKER_TAG}-preprod_image python -m http.server --directory `pwd`                 
